@@ -24,7 +24,11 @@ trait BelongsToTenant
         });
 
         static::creating(function ($model) {
-            $model->tenant_id ??= app(CurrentTenant::class)->id()
+            $current = app(CurrentTenant::class)->id();
+            if ($current && $model->tenant_id && (int) $model->tenant_id !== $current) {
+                throw new LogicException(static::class.' cannot be created for another tenant.');
+            }
+            $model->tenant_id ??= $current
                 ?? throw new LogicException('No current tenant: '.static::class.' cannot be created.');
         });
     }

@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', fn () => view('welcome'));
 Route::view('/login', 'welcome')->name('login');
 
-Route::middleware('auth')->group(function () {
+Route::middleware(['auth', 'tenant'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'stats']);
     Route::post('/reminders', [DashboardController::class, 'sendReminders']);
 

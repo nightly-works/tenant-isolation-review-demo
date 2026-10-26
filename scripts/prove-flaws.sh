@@ -29,12 +29,14 @@ composer dump-autoload -q
 
 php artisan test --filter=TenantIsolationReviewTest --log-junit junit-as-delivered.xml >/dev/null 2>&1 || true
 
-# One line per security test: "failed" for a failed assertion (the attack worked), "error" for a crash
-# (the test could not run on that code, which proves nothing), "passed" otherwise.
+# One line per security test: "failed" when an assertion marked LEAK failed (the leak reproduced),
+# "error" for a crash and "other" for any other failed check (both prove nothing), "passed" otherwise.
 results=$(php -r '
   $xml = simplexml_load_file($argv[1]);
   foreach ($xml->xpath("//testcase") as $case) {
-      $state = count($case->error) > 0 ? "error" : (count($case->failure) > 0 ? "failed" : "passed");
+      $failure = (string) ($case->failure[0] ?? "");
+      $state = count($case->error) > 0 ? "error"
+          : (count($case->failure) === 0 ? "passed" : (str_contains($failure, "LEAK") ? "failed" : "other"));
       echo $case["name"], " ", $state, PHP_EOL;
   }' junit-as-delivered.xml)
 
@@ -42,9 +44,10 @@ status=0
 for t in test_1_ test_1b_ test_2_ test_3_ test_4_; do
   line=$(grep "^${t}" <<<"$results" || true)
   case "$line" in
-    *" failed") echo "as delivered, attack works: ${line% failed}" ;;
+    *" failed") echo "as delivered, leak reproduces: ${line% failed}" ;;
     *" passed") echo "as delivered, test passed (attack did not reproduce): ${line% passed}"; status=1 ;;
     *" error") echo "as delivered, test crashed (proves nothing): ${line% error}"; status=1 ;;
+    *" other") echo "as delivered, a check other than the leak failed (proves nothing): ${line% other}"; status=1 ;;
     *) echo "missing: ${t}"; status=1 ;;
   esac
 done

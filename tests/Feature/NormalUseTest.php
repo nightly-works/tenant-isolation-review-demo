@@ -26,6 +26,8 @@ class NormalUseTest extends TestCase
     {
         $this->actingAs($this->alice)->getJson('/invoices')->assertOk()->assertJsonCount(1)->assertJsonPath('0.number', 'N-001');
         $this->actingAs($this->alice)->getJson('/invoices/'.$this->south['invoice']->id)->assertNotFound();
+        $own = Invoice::withoutGlobalScope('tenant')->where('number', 'N-001')->first();
+        $this->actingAs($this->alice)->getJson('/invoices/'.$own->id)->assertOk()->assertJsonPath('customer.name', 'Acme Ltd');
 
         $acme = Customer::withoutGlobalScope('tenant')->where('email', 'billing@acme.test')->first();
         $this->actingAs($this->alice)->postJson('/invoices', [
@@ -50,6 +52,7 @@ class NormalUseTest extends TestCase
         config(['queue.default' => 'database']);
         $this->actingAs($this->bruno)->postJson('/reminders')->assertStatus(202);
         $this->app['auth']->forgetGuards();
+        $this->app->forgetScopedInstances();
         $this->artisan('queue:work', ['--once' => true, '--stop-when-empty' => true]);
 
         Mail::assertSent(OverdueReminder::class, 1);
@@ -62,7 +65,22 @@ class NormalUseTest extends TestCase
         $this->assertSame(2, Invoice::withoutGlobalScope('tenant')->count());
         $this->assertSame(1, app(CurrentTenant::class)->run($this->bruno->tenant_id, fn () => Invoice::count()));
 
-        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('No current tenant');
         Customer::create(['name' => 'Orphan', 'email' => 'orphan@example.test']);
+    }
+
+    // A worker keeps the guard's user between jobs; the scope never reads it.
+    public function test_a_signed_in_user_left_in_a_worker_does_not_open_a_tenant(): void
+    {
+        $this->actingAs($this->alice);
+
+        $this->assertSame(0, Invoice::count());
+    }
+
+    public function test_a_model_cannot_be_created_for_another_tenant(): void
+    {
+        $this->expectExceptionMessage('cannot be created for another tenant');
+        app(CurrentTenant::class)->run($this->alice->tenant_id, fn () => (new Customer(['name' => 'X', 'email' => 'x@example.test']))
+            ->forceFill(['tenant_id' => $this->bruno->tenant_id])->save());
     }
 }

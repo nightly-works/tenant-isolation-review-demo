@@ -22,7 +22,7 @@ class SendOverdueReminders implements ShouldQueue
     public function handle(CurrentTenant $current): void
     {
         $current->run($this->tenant->id, function () {
-            Invoice::overdue()->with('customer')->each(function (Invoice $invoice) {
+            Invoice::overdue()->whereHas('customer')->with('customer')->each(function (Invoice $invoice) {
                 Mail::to($invoice->customer->email)->send(new OverdueReminder($this->tenant, $invoice));
             });
         });
