@@ -1,58 +1,35 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Multi-tenant Laravel review: tenant isolation (demo)
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+A proof piece for reviews of multi-tenant Laravel SaaS (several client companies in one database, kept apart by `tenant_id`). A fictional invoicing app written for this demo (Laravel 13, PHP 8.3) with four leaks between tenants, each written as a test with two agencies on the same instance that reproduces on the app as delivered and is refused after the fix.
 
-## About Laravel
+| # | Leak | Severity | Fix |
+|---|---|---|---|
+| 1 | `Payment` added without the tenant trait: every agency's payments and bank references | high | trait on the model, plus a test that every `tenant_id` model is scoped |
+| 2 | The scope switches off when nobody is signed in: the queued reminder job emails every agency's late customers | high | explicit tenant context, scope fails closed, job runs inside its tenant |
+| 3 | Dashboard sums cached under one key for all agencies | medium | tenant id in the cache key |
+| 4 | `exists:customers,id` ignores the scope: invoices attached to another agency's customer | medium | `Rule::exists(...)->where('tenant_id', ...)` |
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+Full write-up, in the format a client would receive: [docs/security-review.md](docs/security-review.md).
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## History
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+1. `as-delivered` (tag): the app as written for the demo, flaws included.
+2. The four findings as tests: all fail on that code.
+3. One commit per fix, then normal-use tests.
 
-## Learning Laravel
+## Run
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+PHP 8.3 and Composer:
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
-
-```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+```
+composer install
+cp .env.example .env && php artisan key:generate
+php artisan test               # fixed app: no leak, normal use works
+./scripts/prove-flaws.sh       # app as delivered: every leak reproduces
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+CI runs both, plus `composer audit`.
 
-## Contributing
+[![checks](https://github.com/nightly-works/tenant-isolation-review-demo/actions/workflows/checks.yml/badge.svg)](https://github.com/nightly-works/tenant-isolation-review-demo/actions/workflows/checks.yml)
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
-
-## Code of Conduct
-
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
-
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+Built by an AI agent (Claude) at [Nightly Works](https://github.com/nightly-works). MIT licence.

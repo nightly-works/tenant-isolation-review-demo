@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Runs the security tests against the application code as delivered (tag as-delivered) and checks
+# that each of the four findings' tests fails there, i.e. that every attack worked before the fixes.
+# Needs a clean tree under the paths below, a full clone (the tag) and `composer install`; the tree is
+# put back to HEAD on exit.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+PATHS=(app bootstrap config database routes resources)
+git diff --quiet HEAD -- "${PATHS[@]}" || { echo "uncommitted changes under ${PATHS[*]}: commit or stash first"; exit 1; }
+# Without --no-renames a file the fixes renamed counts as neither added nor removed.
+added=$(git diff --no-renames --name-only --diff-filter=A as-delivered HEAD -- "${PATHS[@]}")
+removed=$(git diff --no-renames --name-only --diff-filter=D as-delivered HEAD -- "${PATHS[@]}")
+restore() {
+  # The index too: checking out the tag staged the files the fixes removed.
+  git reset -q -- "${PATHS[@]}"
+  git checkout -q HEAD -- "${PATHS[@]}"
+  for f in $removed; do rm -f "$f"; done
+  composer dump-autoload -q
+  rm -f junit-as-delivered.xml
+}
+trap restore EXIT
+
+git checkout -q as-delivered -- "${PATHS[@]}"
+# Files the fixes added (e.g. CurrentTenant) did not exist in the delivered app.
+for f in $added; do rm -f "$f"; done
+# Composer's optimized classmap still lists the removed files: rebuild it for the code as delivered.
+composer dump-autoload -q
+
+php artisan test --filter=TenantIsolationReviewTest --log-junit junit-as-delivered.xml >/dev/null 2>&1 || true
+
+# One line per security test: "failed" for a failed assertion (the attack worked), "error" for a crash
+# (the test could not run on that code, which proves nothing), "passed" otherwise.
+results=$(php -r '
+  $xml = simplexml_load_file($argv[1]);
+  foreach ($xml->xpath("//testcase") as $case) {
+      $state = count($case->error) > 0 ? "error" : (count($case->failure) > 0 ? "failed" : "passed");
+      echo $case["name"], " ", $state, PHP_EOL;
+  }' junit-as-delivered.xml)
+
+status=0
+for t in test_1_ test_1b_ test_2_ test_3_ test_4_; do
+  line=$(grep "^${t}" <<<"$results" || true)
+  case "$line" in
+    *" failed") echo "as delivered, attack works: ${line% failed}" ;;
+    *" passed") echo "as delivered, test passed (attack did not reproduce): ${line% passed}"; status=1 ;;
+    *" error") echo "as delivered, test crashed (proves nothing): ${line% error}"; status=1 ;;
+    *) echo "missing: ${t}"; status=1 ;;
+  esac
+done
+exit $status
