@@ -3,24 +3,29 @@
 namespace App\Models\Concerns;
 
 use App\Models\Tenant;
+use App\Support\CurrentTenant;
+use LogicException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * Scopes every query of the model to the signed-in user's tenant and fills tenant_id on create.
+ * Scopes every query of the model to the current tenant and fills tenant_id on create.
+ * Without a current tenant the scope matches nothing and creating fails: code that must
+ * see every tenant says so with withoutGlobalScope('tenant').
  */
 trait BelongsToTenant
 {
     public static function bootBelongsToTenant(): void
     {
         static::addGlobalScope('tenant', function (Builder $query) {
-            if ($tenantId = auth()->user()?->tenant_id) {
-                $query->where($query->getModel()->getTable().'.tenant_id', $tenantId);
-            }
+            $tenantId = app(CurrentTenant::class)->id();
+            $column = $query->getModel()->getTable().'.tenant_id';
+            $tenantId ? $query->where($column, $tenantId) : $query->whereRaw('1 = 0');
         });
 
         static::creating(function ($model) {
-            $model->tenant_id ??= auth()->user()?->tenant_id;
+            $model->tenant_id ??= app(CurrentTenant::class)->id()
+                ?? throw new LogicException('No current tenant: '.static::class.' cannot be created.');
         });
     }
 
